@@ -4,9 +4,10 @@ const mongoose = require('mongoose');
 const { isRedisReady } = require('../config/redis');
 
 /**
- * P2: Health check endpoints for monitoring and orchestration
+ * P2: Health check and metrics endpoints for monitoring and orchestration
  * /healthz - Basic liveness probe (is server running?)
  * /readyz - Readiness probe (is server ready to accept traffic?)
+ * /metrics - Basic metrics in Prometheus format (optional)
  */
 
 /**
@@ -106,6 +107,85 @@ router.get('/readyz', async (req, res) => {
   } else {
     checks.status = 'not_ready';
     res.status(503).json(checks);
+  }
+});
+
+/**
+ * @swagger
+ * /api/metrics:
+ *   get:
+ *     summary: Basic metrics endpoint
+ *     description: Returns basic system metrics in Prometheus-compatible format
+ *     tags: [Health]
+ *     responses:
+ *       200:
+ *         description: Metrics retrieved successfully
+ *         content:
+ *           text/plain:
+ *             schema:
+ *               type: string
+ */
+router.get('/metrics', async (req, res) => {
+  try {
+    const metrics = [];
+    const timestamp = Date.now();
+
+    // Process uptime
+    const uptimeSeconds = process.uptime();
+    metrics.push(`# HELP process_uptime_seconds Process uptime in seconds`);
+    metrics.push(`# TYPE process_uptime_seconds gauge`);
+    metrics.push(`process_uptime_seconds ${uptimeSeconds.toFixed(2)}`);
+
+    // Memory usage
+    const memUsage = process.memoryUsage();
+    metrics.push(`\n# HELP process_memory_rss_bytes Resident Set Size memory in bytes`);
+    metrics.push(`# TYPE process_memory_rss_bytes gauge`);
+    metrics.push(`process_memory_rss_bytes ${memUsage.rss}`);
+
+    metrics.push(`\n# HELP process_memory_heap_used_bytes Heap used memory in bytes`);
+    metrics.push(`# TYPE process_memory_heap_used_bytes gauge`);
+    metrics.push(`process_memory_heap_used_bytes ${memUsage.heapUsed}`);
+
+    metrics.push(`\n# HELP process_memory_heap_total_bytes Heap total memory in bytes`);
+    metrics.push(`# TYPE process_memory_heap_total_bytes gauge`);
+    metrics.push(`process_memory_heap_total_bytes ${memUsage.heapTotal}`);
+
+    // MongoDB connection state
+    const mongoState = mongoose.connection.readyState;
+    metrics.push(`\n# HELP mongodb_connection_state MongoDB connection state (0=disconnected, 1=connected, 2=connecting, 3=disconnecting)`);
+    metrics.push(`# TYPE mongodb_connection_state gauge`);
+    metrics.push(`mongodb_connection_state ${mongoState}`);
+
+    // MongoDB connection pool stats (if available)
+    if (mongoose.connection.client && mongoose.connection.client.topology) {
+      const poolStats = mongoose.connection.client.topology.s?.pool?.totalConnectionCount || 0;
+      metrics.push(`\n# HELP mongodb_connection_pool_total Total MongoDB connections in pool`);
+      metrics.push(`# TYPE mongodb_connection_pool_total gauge`);
+      metrics.push(`mongodb_connection_pool_total ${poolStats}`);
+    }
+
+    // Redis connection state
+    const redisReady = await isRedisReady();
+    metrics.push(`\n# HELP redis_connection_state Redis connection state (0=disconnected, 1=connected)`);
+    metrics.push(`# TYPE redis_connection_state gauge`);
+    metrics.push(`redis_connection_state ${redisReady ? 1 : 0}`);
+
+    // Node.js version info
+    metrics.push(`\n# HELP nodejs_version_info Node.js version`);
+    metrics.push(`# TYPE nodejs_version_info gauge`);
+    metrics.push(`nodejs_version_info{version="${process.version}"} 1`);
+
+    // Environment
+    const env = process.env.NODE_ENV || 'development';
+    metrics.push(`\n# HELP app_environment Application environment`);
+    metrics.push(`# TYPE app_environment gauge`);
+    metrics.push(`app_environment{env="${env}"} 1`);
+
+    res.set('Content-Type', 'text/plain; version=0.0.4');
+    res.send(metrics.join('\n') + '\n');
+  } catch (error) {
+    console.error('Error generating metrics:', error);
+    res.status(500).send('# Error generating metrics\n');
   }
 });
 
