@@ -68,10 +68,7 @@ Updated for new flow (backward compatible):
 
 ### S3 Configuration (from .env)
 ```env
-AWS_ACCESS_KEY=AKIAS2A66JDHSXTOFGHS
-AWS_SECRET_ACCESS_KEY=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
-AWS_REGION=us-east-1
-AWS_S3_BUCKET_NAME=conflict-management-files
+
 ```
 
 ### File Organization in S3
