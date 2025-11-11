@@ -1,6 +1,7 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const path = require('path');
+const compression = require('compression'); // P2: Response compression
 const { specs, swaggerUi } = require('./config/swagger');
 const { httpLogger } = require('./config/logger'); // P2: Structured logging
 
@@ -20,11 +21,32 @@ const configureSecurityMiddleware = require('./middleware/security');
 // Initialize express app
 const app = express();
 
+// P2: Trust proxy (required when behind load balancer/reverse proxy)
+// Enables proper client IP detection and secure cookies
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1); // Trust first proxy
+}
+
 // Apply security middleware (helmet, xss, cors, rate limiting)
 configureSecurityMiddleware(app);
 
+// P2: Compress all responses (gzip/deflate)
+// Reduces bandwidth by 60-80% for JSON/HTML responses
+app.use(compression({
+  level: 6, // Compression level (0-9), 6 is good balance
+  threshold: 1024, // Only compress responses > 1KB
+  filter: (req, res) => {
+    // Don't compress if client doesn't accept encoding
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    return compression.filter(req, res);
+  },
+}));
+
 // Body parser
 app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // P2: Structured logging with Pino (replaces morgan)
 app.use(httpLogger);
